@@ -1,144 +1,345 @@
-;# Main Model: Fire
-;## Global Definitions
-;###Included Submodels
-;The submodel file is included to show, that NetLogoDoc supports multiple files!
-__includes["1_Fire_nls_example.nls"]
+;`@model Wolf Sheep Predation (NetLogo models library)
+;`@author Uri Wilenski
 
-;### Global variables
-;The two global variables define the number of *initial-trees* and the percentage of *burned-trees*
-globals [
-  initial-trees   ;; how many trees (green patches) we started with
-  burned-trees    ;; how many have burned so far
-]
+;`@global Subfiles
+;`@details We included a subilfe to the wolf sheep model to demonstrate that nls files are supported by nldoc
+;`@code TRUE
+__includes["Wolf Sheep Predation Extra.nls"]
 
-;### Breeds
-;There are two breeds:
-;
-;* Fire
-;* Ember
-;
-breed [fires fire]    ;; bright red turtles -- the leading edge of the fire
-breed [embers ember]  ;; turtles gradually fading from red to near black
+;`@global Global variables
+;`@details There is only one global variable that stores the max number of sheep allowed
+;`@code TRUE
+globals [ max-sheep ]  ; don't let sheep population grow too large
 
-;***
-;## Setup Procedures
-;### Main Setup
-;In the Main setup procedure, the model gets initialized.
+;`@global Breeds
+;`@details There are two breeds: sheep and wolves
+;`@code TRUE
+breed [ sheep a-sheep ]  ; sheep is its own plural, so we use "a-sheep" as the singular.
+breed [ wolves wolf ]
+
+;`@global Agent properties
+;`@details Sheep and wolves have a energy variable. Patches have a countdown variable to store the current state of the grass regrowth countdown.
+;`@code TRUE
+turtles-own [ energy ]       ; both wolves and sheep have energy
+patches-own [ countdown ]
+
+;`@procedure Setup
+;`@details The setup procedure first resets the model.
+;`@details Depending on the chosen model version, grass patches are initialized.
+;`@details Finally, wolves and sheep are created.
+;`@code FALSE
 to setup
   clear-all
-  set-default-shape turtles "square"
-  ; make some green trees
-  ask patches with [(random-float 100) < density]
-    [ set pcolor green ]
-  ; make a column of burning trees
-  ask patches with [pxcor = min-pxcor]
-    [ ignite ]
-  ; set tree counts
-  set initial-trees count patches with [pcolor = green]
-  set burned-trees 0
+  ifelse netlogo-web? [set max-sheep 10000] [set max-sheep 30000]
+
+  ; Check model-version switch
+  ; if we're not modeling grass, then the sheep don't need to eat to survive
+  ; otherwise the grass's state of growth and growing logic need to be set up
+  ifelse model-version = "sheep-wolves-grass" [
+    ask patches [
+      set pcolor one-of [ green brown ]
+      ifelse pcolor = green
+        [ set countdown grass-regrowth-time ]
+      [ set countdown random grass-regrowth-time ] ; initialize grass regrowth clocks randomly for brown patches
+    ]
+  ]
+  [
+    ask patches [ set pcolor green ]
+  ]
+
+  create-sheep initial-number-sheep  ; create the sheep, then initialize their variables
+  [
+    set shape  "sheep"
+    set color white
+    set size 1.5  ; easier to see
+    set label-color blue - 2
+    set energy random (2 * sheep-gain-from-food)
+    setxy random-xcor random-ycor
+  ]
+
+  create-wolves initial-number-wolves  ; create the wolves, then initialize their variables
+  [
+    set shape "wolf"
+    set color black
+    set size 2  ; easier to see
+    set energy random (2 * wolf-gain-from-food)
+    setxy random-xcor random-ycor
+  ]
+  display-labels
   reset-ticks
 end
 
-;***
-;## Go Procedures
-;### Main Go
-;The Main **Go** procedure, is a looped procedure, which spreads the fire.
+;`@procedure Go
+;`@details This is the main procedure of the model.
+;`@details It iterates over sheep and wolve agents.
+;`@details These agents then move, forage and die if they dont have enough energy.
+;`@code FALSE
 to go
-  if not any? turtles  ;; either fires or embers
-    [ stop ]
-  ask fires
-    [ ask neighbors4 with [pcolor = green]
-        [ ignite ]
-      set breed embers ]
-  fade-embers
+  ; stop the simulation of no wolves or sheep
+  if not any? turtles [ stop ]
+  ; stop the model if there are no wolves and the number of sheep gets very large
+  if not any? wolves and count sheep > max-sheep [ user-message "The sheep have inherited the earth" stop ]
+  ask sheep [
+    move
+    if model-version = "sheep-wolves-grass" [ ; in this version, sheep eat grass, grass grows and it costs sheep energy to move
+      set energy energy - 1  ; deduct energy for sheep only if running sheep-wolf-grass model version
+      eat-grass  ; sheep eat grass only if running sheep-wolf-grass model version
+      death ; sheep die from starvation only if running sheep-wolf-grass model version
+    ]
+    reproduce-sheep  ; sheep reproduce at random rate governed by slider
+  ]
+  ask wolves [
+    move
+    set energy energy - 1  ; wolves lose energy as they move
+    eat-sheep ; wolves eat a sheep on their patch
+    death ; wolves die if our of energy
+    reproduce-wolves ; wolves reproduce at random rate governed by slider
+  ]
+  if model-version = "sheep-wolves-grass" [ ask patches [ grow-grass ] ]
+  ; set grass count patches with [pcolor = green]
   tick
+  display-labels
 end
 
-;### Ignite
-;The ignite Procedure makes fire, ...
-to ignite  ;; patch procedure
-  sprout-fires 1
-    [ set color red ]
-  set pcolor black
-  set burned-trees burned-trees + 1
+;`@procedure Move
+;`@details Turtles turn left and right at random and then move one patch forward.
+;`@code TRUE
+to move  ; turtle procedure
+  rt random 50
+  lt random 50
+  fd 1
+end
+
+;`@procedure eat-grass
+;`@details If the current patch contains grass, the sheep eats it and gains energy. Then the patch color is set to brown
+;`@code TRUE
+to eat-grass  ; sheep procedure
+  ; sheep eat grass, turn the patch brown
+  if pcolor = green [
+    set pcolor brown
+    set energy energy + sheep-gain-from-food  ; sheep gain energy by eating
+  ]
+end
+
+;`@procedure reproduce-sheep
+;`@details Under a defined probability, a sheep may hatch a new offspring and looses 50% of its energy.
+;`@code TRUE
+to reproduce-sheep  ; sheep procedure
+  if random-float 100 < sheep-reproduce [  ; throw "dice" to see if you will reproduce
+    set energy (energy / 2)                ; divide energy between parent and offspring
+    hatch 1 [ rt random-float 360 fd 1 ]   ; hatch an offspring and move it forward 1 step
+  ]
+end
+
+;`@procedure reproduce-wolves
+;`@details Under a defined probability, a wolf may hatch a new offspring and looses 50% of its energy.
+;`@code TRUE
+to reproduce-wolves  ; wolf procedure
+  if random-float 100 < wolf-reproduce [  ; throw "dice" to see if you will reproduce
+    set energy (energy / 2)               ; divide energy between parent and offspring
+    hatch 1 [ rt random-float 360 fd 1 ]  ; hatch an offspring and move it forward 1 step
+  ]
+end
+
+;`@procedure eat-sheep
+;`@details If a wolf meets a sheep, the sheep dies and the wolf gains energy.
+;`@code TRUE
+to eat-sheep  ; wolf procedure
+  let prey one-of sheep-here                    ; grab a random sheep
+  if prey != nobody  [                          ; did we get one?  if so,
+    ask prey [ die ]                            ; kill it, and...
+    set energy energy + wolf-gain-from-food     ; get energy from eating
+  ]
 end
 
 
-;### Fade-Embers
-;achieve fading color effect for the fire as it burns
-to fade-embers
-  ask embers
-    [ set color color - 0.3  ;; make red darker
-      if color < red - 3.5     ;; are we almost at black?
-        [ set pcolor color
-          die ] ]
+;`@procedure death
+;`@details If a turtle looses all of its energy it dies.
+;`@code TRUE
+to death  ; turtle procedure (i.e. both wolf nd sheep procedure)
+  ; when energy dips below zero, die
+  if energy < 0 [ die ]
 end
 
-;Copyright 1997 Uri Wilensky.
-;See Info tab for full copyright and license.
+
+;`@procedure grow-grass
+;`@details The patch countdown timer is reduced for all brown patches. If the countdown of a brown patch is 0, it turns green.
+;`@code TRUE
+to grow-grass  ; patch procedure
+  ; countdown on brown patches: if reach 0, grow some grass
+  if pcolor = brown [
+    ifelse countdown <= 0
+      [ set pcolor green
+        set countdown grass-regrowth-time ]
+      [ set countdown countdown - 1 ]
+  ]
+end
+
+
+;`@procedure grass
+;`@details Reports the number of grass patches
+;`@return number of green patches
+;`@code TRUE
+to-report grass
+  ifelse model-version = "sheep-wolves-grass" [
+    report patches with [pcolor = green]
+  ]
+  [ report 0 ]
+end
+
+;`@procedure display-labels
+;`@details Sets energy levels as labels of sheep and wolves
+;`@code TRUE
+to display-labels
+  ask turtles [ set label "" ]
+  if show-energy? [
+    ask wolves [ set label round energy ]
+    if model-version = "sheep-wolves-grass" [ ask sheep [ set label round energy ] ]
+  ]
+end
+
 ;
 @#$#@#$#@
 GRAPHICS-WINDOW
-200
+355
 10
-710
-521
+873
+529
 -1
 -1
-2.0
+10.0
 1
-10
+14
 1
 1
 1
 0
-0
-0
 1
--125
-125
--125
-125
+1
+1
+-25
+25
+-25
+25
 1
 1
 1
 ticks
 30.0
 
-MONITOR
-43
-131
-158
-176
-percent burned
-(burned-trees / initial-trees)\n* 100
+SLIDER
+5
+60
+179
+93
+initial-number-sheep
+initial-number-sheep
+0
+250
+100.0
 1
 1
-11
+NIL
+HORIZONTAL
 
 SLIDER
 5
-38
-190
-71
-density
-density
+196
+179
+229
+sheep-gain-from-food
+sheep-gain-from-food
 0.0
-99.0
-52.0
+50.0
+4.0
+1.0
+1
+NIL
+HORIZONTAL
+
+SLIDER
+5
+231
+179
+264
+sheep-reproduce
+sheep-reproduce
+1.0
+20.0
+4.0
 1.0
 1
 %
 HORIZONTAL
 
+SLIDER
+185
+60
+350
+93
+initial-number-wolves
+initial-number-wolves
+0
+250
+50.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+183
+195
+348
+228
+wolf-gain-from-food
+wolf-gain-from-food
+0.0
+100.0
+20.0
+1.0
+1
+NIL
+HORIZONTAL
+
+SLIDER
+183
+231
+348
+264
+wolf-reproduce
+wolf-reproduce
+0.0
+20.0
+5.0
+1.0
+1
+%
+HORIZONTAL
+
+SLIDER
+40
+100
+252
+133
+grass-regrowth-time
+grass-regrowth-time
+0
+100
+30.0
+1
+1
+NIL
+HORIZONTAL
+
 BUTTON
-106
-79
-175
-115
-go
-go
-T
+40
+140
+109
+173
+setup
+setup
+NIL
 1
 T
 OBSERVER
@@ -149,13 +350,13 @@ NIL
 1
 
 BUTTON
-26
-79
-96
 115
-setup
-setup
-NIL
+140
+190
+173
+go
+go
+T
 1
 T
 OBSERVER
@@ -163,87 +364,224 @@ NIL
 NIL
 NIL
 NIL
+0
+
+PLOT
+10
+360
+350
+530
+populations
+time
+pop.
+0.0
+100.0
+0.0
+100.0
+true
+true
+"" ""
+PENS
+"sheep" 1.0 0 -612749 true "" "plot count sheep"
+"wolves" 1.0 0 -16449023 true "" "plot count wolves"
+"grass / 4" 1.0 0 -10899396 true "" "if model-version = \"sheep-wolves-grass\" [ plot count grass / 4 ]"
+
+MONITOR
+41
+308
+111
+353
+sheep
+count sheep
+3
 1
+11
+
+MONITOR
+115
+308
+185
+353
+wolves
+count wolves
+3
+1
+11
+
+MONITOR
+191
+308
+256
+353
+grass
+count grass / 4
+0
+1
+11
+
+TEXTBOX
+20
+178
+160
+196
+Sheep settings
+11
+0.0
+0
+
+TEXTBOX
+198
+176
+311
+194
+Wolf settings
+11
+0.0
+0
+
+SWITCH
+105
+270
+241
+303
+show-energy?
+show-energy?
+1
+1
+-1000
+
+CHOOSER
+5
+10
+350
+55
+model-version
+model-version
+"sheep-wolves" "sheep-wolves-grass"
+0
 
 @#$#@#$#@
 ## WHAT IS IT?
 
-This project simulates the spread of a fire through a forest.  It shows that the fire's chance of reaching the right edge of the forest depends critically on the density of trees. This is an example of a common feature of complex systems, the presence of a non-linear threshold or critical parameter.
+This model explores the stability of predator-prey ecosystems. Such a system is called unstable if it tends to result in extinction for one or more species involved.  In contrast, a system is stable if it tends to maintain itself over time, despite fluctuations in population sizes.
 
 ## HOW IT WORKS
 
-The fire starts on the left edge of the forest, and spreads to neighboring trees. The fire spreads in four directions: north, east, south, and west.
+There are two main variations to this model.
 
-The model assumes there is no wind.  So, the fire must have trees along its path in order to advance.  That is, the fire cannot skip over an unwooded area (patch), so such a patch blocks the fire's motion in that direction.
+In the first variation, the "sheep-wolves" version, wolves and sheep wander randomly around the landscape, while the wolves look for sheep to prey on. Each step costs the wolves energy, and they must eat sheep in order to replenish their energy - when they run out of energy they die. To allow the population to continue, each wolf or sheep has a fixed probability of reproducing at each time step. In this variation, we model the grass as "infinite" so that sheep always have enough to eat, and we don't explicitly model the eating or growing of grass. As such, sheep don't either gain or lose energy by eating or moving. This variation produces interesting population dynamics, but is ultimately unstable. This variation of the model is particularly well-suited to interacting species in a rich nutrient environment, such as two strains of bacteria in a petri dish (Gause, 1934).
+
+The second variation, the "sheep-wolves-grass" version explictly models grass (green) in addition to wolves and sheep. The behavior of the wolves is identical to the first variation, however this time the sheep must eat grass in order to maintain their energy - when they run out of energy they die. Once grass is eaten it will only regrow after a fixed amount of time. This variation is more complex than the first, but it is generally stable. It is a closer match to the classic Lotka Volterra population oscillation models. The classic LV models though assume the populations can take on real values, but in small populations these models underestimate extinctions and agent-based models such as the ones here, provide more realistic results. (See Wilensky & Rand, 2015; chapter 4).
+
+The construction of this model is described in two papers by Wilensky & Reisman (1998; 2006) referenced below.
 
 ## HOW TO USE IT
 
-Click the SETUP button to set up the trees (green) and fire (red on the left-hand side).
+1. Set the model-version chooser to "sheep-wolves-grass" to include grass eating and growth in the model, or to "sheep-wolves" to only include wolves (black) and sheep (white).
+2. Adjust the slider parameters (see below), or use the default settings.
+3. Press the SETUP button.
+4. Press the GO button to begin the simulation.
+5. Look at the monitors to see the current population sizes
+6. Look at the POPULATIONS plot to watch the populations fluctuate over time
 
-Click the GO button to start the simulation.
+Parameters:
+MODEL-VERSION: Whether we model sheep wolves and grass or just sheep and wolves
+INITIAL-NUMBER-SHEEP: The initial size of sheep population
+INITIAL-NUMBER-WOLVES: The initial size of wolf population
+SHEEP-GAIN-FROM-FOOD: The amount of energy sheep get for every grass patch eaten (Note this is not used in the sheep-wolves model version)
+WOLF-GAIN-FROM-FOOD: The amount of energy wolves get for every sheep eaten
+SHEEP-REPRODUCE: The probability of a sheep reproducing at each time step
+WOLF-REPRODUCE: The probability of a wolf reproducing at each time step
+GRASS-REGROWTH-TIME: How long it takes for grass to regrow once it is eaten (Note this is not used in the sheep-wolves model version)
+SHOW-ENERGY?: Whether or not to show the energy of each animal as a number
 
-The DENSITY slider controls the density of trees in the forest. (Note: Changes in the DENSITY slider do not take effect until the next SETUP.)
+Notes:
+- one unit of energy is deducted for every step a wolf takes
+- when running the sheep-wolves-grass model version, one unit of energy is deducted for every step a sheep takes
+
+There are three monitors to show the populations of the wolves, sheep and grass and a populations plot to display the population values over time.
+
+If there are no wolves left and too many sheep, the model run stops.
 
 ## THINGS TO NOTICE
 
-When you run the model, how much of the forest burns. If you run it again with the same settings, do the same trees burn? How similar is the burn from run to run?
+When running the sheep-wolves model variation, watch as the sheep and wolf populations fluctuate. Notice that increases and decreases in the sizes of each population are related. In what way are they related? What eventually happens?
 
-Each turtle that represents a piece of the fire is born and then dies without ever moving. If the fire is made of turtles but no turtles are moving, what does it mean to say that the fire moves? This is an example of different levels in a system: at the level of the individual turtles, there is no motion, but at the level of the turtles collectively over time, the fire moves.
+In the sheep-wolves-grass model variation, notice the green line added to the population plot representing fluctuations in the amount of grass. How do the sizes of the three populations appear to relate now? What is the explanation for this?
+
+Why do you suppose that some variations of the model might be stable while others are not?
 
 ## THINGS TO TRY
 
-Set the density of trees to 55%. At this setting, there is virtually no chance that the fire will reach the right edge of the forest. Set the density of trees to 70%. At this setting, it is almost certain that the fire will reach the right edge. There is a sharp transition around 59% density. At 59% density, the fire has a 50/50 chance of reaching the right edge.
+Try adjusting the parameters under various settings. How sensitive is the stability of the model to the particular parameters?
 
-Try setting up and running a BehaviorSpace experiment (see Tools menu) to analyze the percent burned at different tree density levels.
+Can you find any parameters that generate a stable ecosystem in the sheep-wolves model variation?
+
+Try running the sheep-wolves-grass model variation, but setting INITIAL-NUMBER-WOLVES to 0. This gives a stable ecosystem with only sheep and grass. Why might this be stable while the variation with only sheep and wolves is not?
+
+Notice that under stable settings, the populations tend to fluctuate at a predictable pace. Can you find any parameters that will speed this up or slow it down?
 
 ## EXTENDING THE MODEL
 
-What if the fire could spread in eight directions (including diagonals)? To do that, use "neighbors" instead of "neighbors4". How would that change the fire's chances of reaching the right edge? In this model, what "critical density" of trees is needed for the fire to propagate?
+There are a number ways to alter the model so that it will be stable with only wolves and sheep (no grass). Some will require new elements to be coded in or existing behaviors to be changed. Can you develop such a version?
 
-Add wind to the model so that the fire can "jump" greater distances in certain directions.
+Try changing the reproduction rules -- for example, what would happen if reproduction depended on energy rather than being determined by a fixed probability?
+
+Can you modify the model so the sheep will flock?
+
+Can you modify the model so that wolves actively chase sheep?
 
 ## NETLOGO FEATURES
 
-Unburned trees are represented by green patches; burning trees are represented by turtles.  Two breeds of turtles are used, "fires" and "embers".  When a tree catches fire, a new fire turtle is created; a fire turns into an ember on the next turn.  Notice how the program gradually darkens the color of embers to achieve the visual effect of burning out.
+Note the use of breeds to model two different kinds of "turtles": wolves and sheep. Note the use of patches to model grass.
 
-The `neighbors4` primitive is used to spread the fire.
-
-You could also write the model without turtles by just having the patches spread the fire, and doing it that way makes the code a little simpler.   Written that way, the model would run much slower, since all of the patches would always be active.  By using turtles, it's much easier to restrict the model's activity to just the area around the leading edge of the fire.
-
-See the "CA 1D Rule 30" and "CA 1D Rule 30 Turtle" for an example of a model written both with and without turtles.
+Note use of the ONE-OF agentset reporter to select a random sheep to be eaten by a wolf.
 
 ## RELATED MODELS
 
-* Percolation
-* Rumor Mill
+Look at Rabbits Grass Weeds for another model of interacting populations with different rules.
 
 ## CREDITS AND REFERENCES
 
-http://en.wikipedia.org/wiki/Forest-fire_model
+Wilensky, U. & Reisman, K. (1998). Connected Science: Learning Biology through Constructing and Testing Computational Theories -- an Embodied Modeling Approach. International Journal of Complex Systems, M. 234, pp. 1 - 12. (The Wolf-Sheep-Predation model is a slightly extended version of the model described in the paper.)
 
+Wilensky, U. & Reisman, K. (2006). Thinking like a Wolf, a Sheep or a Firefly: Learning Biology through Constructing and Testing Computational Theories -- an Embodied Modeling Approach. Cognition & Instruction, 24(2), pp. 171-209. http://ccl.northwestern.edu/papers/wolfsheep.pdf .
+
+Wilensky, U., & Rand, W. (2015). An introduction to agent-based modeling: Modeling natural, social and engineered complex systems with NetLogo. Cambridge, MA: MIT Press.
+
+Lotka, A. J. (1925). Elements of physical biology. New York: Dover.
+
+Volterra, V. (1926, October 16). Fluctuations in the abundance of a species considered mathematically. Nature, 118, 558–560.
+
+Gause, G. F. (1934). The struggle for existence. Baltimore: Williams & Wilkins.
 
 ## HOW TO CITE
 
-If you mention this model in a publication, we ask that you include these citations for the model itself and for the NetLogo software:
+If you mention this model or the NetLogo software in a publication, we ask that you include the citations below.
 
-* Wilensky, U. (1997).  NetLogo Fire model.  http://ccl.northwestern.edu/netlogo/models/Fire.  Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.
+For the model itself:
+
+* Wilensky, U. (1997).  NetLogo Wolf Sheep Predation model.  http://ccl.northwestern.edu/netlogo/models/WolfSheepPredation.  Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.
+
+Please cite the NetLogo software as:
+
 * Wilensky, U. (1999). NetLogo. http://ccl.northwestern.edu/netlogo/. Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.
 
 ## COPYRIGHT AND LICENSE
 
 Copyright 1997 Uri Wilensky.
 
-![CC BY-NC-SA 3.0](http://i.creativecommons.org/l/by-nc-sa/3.0/88x31.png)
+![CC BY-NC-SA 3.0](http://ccl.northwestern.edu/images/creativecommons/byncsa.png)
 
-This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 3.0 License.  To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-sa/3.0/ or send a letter to Creative Commons, 559 Nathan Abbott Way, Stanford, California 94305, USA.
+This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 3.0 License.  To view a copy of this license, visit https://creativecommons.org/licenses/by-nc-sa/3.0/ or send a letter to Creative Commons, 559 Nathan Abbott Way, Stanford, California 94305, USA.
 
 Commercial licenses are also available. To inquire about commercial licenses, please contact Uri Wilensky at uri@northwestern.edu.
 
 This model was created as part of the project: CONNECTED MATHEMATICS: MAKING SENSE OF COMPLEX PHENOMENA THROUGH BUILDING OBJECT-BASED PARALLEL MODELS (OBPML).  The project gratefully acknowledges the support of the National Science Foundation (Applications of Advanced Technologies Program) -- grant numbers RED #9552950 and REC #9632612.
 
-This model was developed at the MIT Media Lab using CM StarLogo.  See Resnick, M. (1994) "Turtles, Termites and Traffic Jams: Explorations in Massively Parallel Microworlds."  Cambridge, MA: MIT Press.  Adapted to StarLogoT, 1997, as part of the Connected Mathematics Project.
+This model was converted to NetLogo as part of the projects: PARTICIPATORY SIMULATIONS: NETWORK-BASED DESIGN FOR SYSTEMS LEARNING IN CLASSROOMS and/or INTEGRATED SIMULATION AND MODELING ENVIRONMENT. The project gratefully acknowledges the support of the National Science Foundation (REPP & ROLE programs) -- grant numbers REC #9814682 and REC-0126227. Converted from StarLogoT to NetLogo, 2000.
 
-This model was converted to NetLogo as part of the projects: PARTICIPATORY SIMULATIONS: NETWORK-BASED DESIGN FOR SYSTEMS LEARNING IN CLASSROOMS and/or INTEGRATED SIMULATION AND MODELING ENVIRONMENT. The project gratefully acknowledges the support of the National Science Foundation (REPP & ROLE programs) -- grant numbers REC #9814682 and REC-0126227. Converted from StarLogoT to NetLogo, 2001.
+<!-- 1997 2000 -->
 @#$#@#$#@
 default
 true
@@ -437,6 +775,22 @@ Polygon -7500403 true true 135 105 90 60 45 45 75 105 135 135
 Polygon -7500403 true true 165 105 165 135 225 105 255 45 210 60
 Polygon -7500403 true true 135 90 120 45 150 15 180 45 165 90
 
+sheep
+false
+15
+Circle -1 true true 203 65 88
+Circle -1 true true 70 65 162
+Circle -1 true true 150 105 120
+Polygon -7500403 true false 218 120 240 165 255 165 278 120
+Circle -7500403 true false 214 72 67
+Rectangle -1 true true 164 223 179 298
+Polygon -1 true true 45 285 30 285 30 240 15 195 45 210
+Circle -1 true true 3 83 150
+Rectangle -1 true true 65 221 80 296
+Polygon -1 true true 195 285 210 285 210 240 240 210 195 210
+Polygon -7500403 true false 276 85 285 105 302 99 294 83
+Polygon -7500403 true false 219 85 210 105 193 99 201 83
+
 square
 false
 0
@@ -521,19 +875,69 @@ Line -7500403 true 40 84 269 221
 Line -7500403 true 40 216 269 79
 Line -7500403 true 84 40 221 269
 
+wolf
+false
+0
+Polygon -16777216 true false 253 133 245 131 245 133
+Polygon -7500403 true true 2 194 13 197 30 191 38 193 38 205 20 226 20 257 27 265 38 266 40 260 31 253 31 230 60 206 68 198 75 209 66 228 65 243 82 261 84 268 100 267 103 261 77 239 79 231 100 207 98 196 119 201 143 202 160 195 166 210 172 213 173 238 167 251 160 248 154 265 169 264 178 247 186 240 198 260 200 271 217 271 219 262 207 258 195 230 192 198 210 184 227 164 242 144 259 145 284 151 277 141 293 140 299 134 297 127 273 119 270 105
+Polygon -7500403 true true -1 195 14 180 36 166 40 153 53 140 82 131 134 133 159 126 188 115 227 108 236 102 238 98 268 86 269 92 281 87 269 103 269 113
+
 x
 false
 0
 Polygon -7500403 true true 270 75 225 30 30 225 75 270
 Polygon -7500403 true true 30 75 75 30 270 225 225 270
 @#$#@#$#@
-NetLogo 6.0.2
+NetLogo 6.0.3
 @#$#@#$#@
-set density 60.0
+set model-version "sheep-wolves-grass"
+set show-energy? false
 setup
-repeat 180 [ go ]
+repeat 75 [ go ]
 @#$#@#$#@
 @#$#@#$#@
+<experiments>
+  <experiment name="wolf-sheep-experiment" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <final>ca</final>
+    <timeLimit steps="500"/>
+    <exitCondition>not any? turtles</exitCondition>
+    <metric>count sheep</metric>
+    <metric>count wolves</metric>
+    <metric>grass</metric>
+    <steppedValueSet variable="wolf-gain-from-food" first="10" step="5" last="30"/>
+    <enumeratedValueSet variable="show-energy?">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="wolf-reproduce">
+      <value value="3"/>
+      <value value="5"/>
+      <value value="7"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-number-wolves">
+      <value value="50"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="initial-number-sheep">
+      <value value="100"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="model-version">
+      <value value="&quot;sheep-wolves&quot;"/>
+      <value value="&quot;sheep-wolves-grass&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="sheep-gain-from-food">
+      <value value="4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="grass-regrowth-time">
+      <value value="30"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="sheep-reproduce">
+      <value value="3"/>
+      <value value="4"/>
+      <value value="5"/>
+    </enumeratedValueSet>
+  </experiment>
+</experiments>
 @#$#@#$#@
 @#$#@#$#@
 default
@@ -547,5 +951,5 @@ true
 Line -7500403 true 150 150 90 180
 Line -7500403 true 150 150 210 180
 @#$#@#$#@
-0
+1
 @#$#@#$#@
