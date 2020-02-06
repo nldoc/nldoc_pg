@@ -1,0 +1,18 @@
+;# Submodel: Fire_nls_example
+;## Submodel procedures
+;### Color patches
+;This function just resets all patches to green color
+to reset-patches
+  ask patches
+  [
+    set pcolor green
+  ]
+end
+
+;### Create turtles
+;This function creates some turtles
+to reset-turtles
+  ask turtles [die]
+  create-turtles 10
+end
+;
